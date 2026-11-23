@@ -4,4 +4,4 @@
 
 [打开游戏](https://ydhhhh.github.io/broken-path-maze/)
 
-当前版本 `1.6.1`。
+当前版本 `1.6.2`。

@@ -1,14 +1,14 @@
 "use strict";
 
-const CACHE_NAME = "broken-path-v24";
+const CACHE_NAME = "broken-path-v25";
 const CORE_ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=1.6.1",
-  "./game.js?v=1.6.1",
-  "./maze-levels.js?v=1.6.1",
-  "./seeded-levels.js?v=1.6.1",
-  "./daily-levels.js?v=1.6.1",
+  "./styles.css?v=1.6.2",
+  "./game.js?v=1.6.2",
+  "./maze-levels.js?v=1.6.2",
+  "./seeded-levels.js?v=1.6.2",
+  "./daily-levels.js?v=1.6.2",
   "./manifest.webmanifest",
   "./assets/icon.svg",
   "./assets/icon-192.png",
