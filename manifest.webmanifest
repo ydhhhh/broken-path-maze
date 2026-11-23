@@ -1,0 +1,41 @@
+{
+  "name": "破壁迷途 · 二十关与每日迷局",
+  "short_name": "破壁迷途",
+  "id": "./",
+  "description": "主线每关以灵魂状态开局，穿墙探路，辨认墙体、规划物资，点亮二十段星路，并挑战每日同题与同码种子迷宫。",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "categories": ["games", "entertainment", "puzzle"],
+  "background_color": "#101720",
+  "theme_color": "#11161e",
+  "icons": [
+    {
+      "src": "assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "assets/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

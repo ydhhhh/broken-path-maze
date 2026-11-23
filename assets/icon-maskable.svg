@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">破壁迷途自适应图标</title>
+  <desc id="desc">深色背景中央的迷宫、金色星光与木墙裂缝，主体保留在自适应图标安全区内</desc>
+  <defs>
+    <radialGradient id="night" cx="50%" cy="38%" r="74%">
+      <stop offset="0" stop-color="#263945"/>
+      <stop offset="1" stop-color="#0b1118"/>
+    </radialGradient>
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="16" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <!-- Maskable icons must paint every pixel; launchers provide the final shape. -->
+  <rect width="512" height="512" fill="url(#night)"/>
+  <!-- The complete motif fits inside the centered 80% safe-area circle. -->
+  <g transform="translate(76.8 76.8) scale(.7)">
+    <g fill="none" stroke="#53636a" stroke-width="34" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M72 115h151v82h92v-82h125"/>
+      <path d="M72 397h116v-86h142v86h110"/>
+      <path d="M103 197v114h85"/>
+      <path d="M409 197v114h-79"/>
+    </g>
+    <path d="M256 148l23 53 58 6-44 38 13 57-50-30-50 30 13-57-44-38 58-6z" fill="#ffdc78" filter="url(#glow)"/>
+    <path d="M256 180l13 30 33 3-25 22 7 32-28-17-28 17 7-32-25-22 33-3z" fill="#fff3b8"/>
+    <path d="M188 311h142" stroke="#b9804e" stroke-width="28" stroke-linecap="round"/>
+    <path d="M249 298l-18 28 26 19-16 29" fill="none" stroke="#ffe0a6" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

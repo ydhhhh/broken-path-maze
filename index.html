@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'" />
+  <meta name="referrer" content="no-referrer" />
+  <meta name="theme-color" content="#11161e" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="format-detection" content="telephone=no" />
+  <meta name="description" content="《破壁迷途》是一款关于空间记忆、黑暗探索与资源规划的网页解谜游戏，包含二十关主线、每日同题与可分享的种子星图。" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="破壁迷途" />
+  <meta property="og:title" content="破壁迷途 · 记住地图，点亮星路" />
+  <meta property="og:description" content="主线每关以灵魂状态开局，穿墙探路，辨认墙体、规划物资，点亮二十段星路，再挑战每日同题与同码种子迷宫。" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="破壁迷途 · 记住地图，点亮星路" />
+  <meta name="twitter:description" content="主线每关以灵魂状态开局，穿墙探路，辨认墙体、规划物资，点亮二十段星路，再挑战每日同题与同码种子迷宫。" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="破壁迷途" />
+  <title>破壁迷途 · 二十关与每日迷局</title>
+  <link rel="canonical" href="./" />
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="assets/icon-192.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="styles.css?v=1.6.0" />
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+
+  <main class="app" id="app">
+    <header class="topbar">
+      <div class="brand" aria-label="破壁迷途">
+        <span class="brand-star">✦</span>
+        <div>
+          <strong>破壁迷途</strong>
+          <small>让灵魂探路，抵达北极星处</small>
+        </div>
+      </div>
+
+      <div class="level-meta" aria-live="polite">
+        <span id="chapterLabel">失光迷宫 · 前篇</span>
+        <strong id="levelLabel">01 / 20</strong>
+      </div>
+
+      <div class="topbar-actions">
+        <button class="icon-button" id="semanticMapButton" type="button" aria-label="打开文本地图检查器" aria-keyshortcuts="M" title="文本地图检查器（M）">▦</button>
+        <button class="icon-button" id="shareButton" type="button" aria-label="分享游戏">↗</button>
+        <button class="icon-button" id="settingsButton" type="button" aria-label="打开设置">⚙</button>
+      </div>
+    </header>
+
+    <section class="stage-shell">
+      <div class="objective-bar">
+        <div>
+          <span class="eyebrow" id="objectiveEyebrow">本关课题 · 01 / 20</span>
+          <h1 id="levelTitle">石径初醒</h1>
+          <small class="level-challenge hidden" id="levelChallenge"></small>
+          <small class="memory-pin-status hidden" id="memoryPinStatus" role="status" aria-describedby="memoryPinRule"></small>
+          <small class="mobile-score" id="mobileScore" role="status" aria-live="polite"></small>
+        </div>
+        <p id="levelObjective">拾取锤子，敲开木墙，走向星星。</p>
+      </div>
+
+      <div class="game-stage" id="gameStage">
+        <canvas id="gameCanvas" aria-label="游戏地图。点击光亮地面移动，先选择道具再点击目标；按 M 打开文本地图检查器。" aria-describedby="gameStatus itemHelp" tabindex="0"></canvas>
+        <p class="sr-only" id="gameStatus" role="status" aria-live="polite"></p>
+
+        <div class="preview-panel hidden" id="previewPanel">
+          <span>记住道路<small class="preview-wall-legend" aria-label="墙体图例：木纹是可以破坏的木墙，石块是不可以破坏的石墙"><i class="preview-wood-swatch" aria-hidden="true"></i>木可破 · <i class="preview-stone-swatch" aria-hidden="true"></i>石不可破</small><small class="preview-ember-legend hidden" id="emberPreviewLegend">琥珀色裂纹石墙：锤击耗锤且不碎 · 炸弹可破</small><small class="preview-gesture" id="previewGesture">按住拖动放大</small></span>
+          <strong id="previewCountdown" role="timer" aria-live="off" aria-atomic="true" aria-label="亮屏剩余 5 秒">5</strong>
+          <button type="button" id="previewSemanticMapButton">文本地图</button>
+          <button type="button" id="skipPreview">空格跳过</button>
+        </div>
+
+        <span class="sr-only" id="memoryPinRule">记忆钉：先用灵魂、闪光弹或手电筒揭示墙体材质，再轻点已揭示的墙放置记忆钉；照明消失后仍可辨认。</span>
+
+        <div class="tutorial-bubble hidden" id="tutorialBubble">
+          <span class="tutorial-step" id="tutorialStep">01</span>
+          <p id="tutorialText"></p>
+        </div>
+
+        <div class="direction-indicator hidden" id="directionIndicator" aria-hidden="true">
+          <span>✦</span><small id="directionText"></small>
+        </div>
+
+        <button class="camera-reset hidden" id="cameraResetButton" type="button" aria-label="让视角回到角色">◎</button>
+
+        <div class="illumination-status hidden" id="illuminationStatus" role="timer" aria-live="off" aria-atomic="true" aria-label="闪光照明剩余 25 秒">
+          <span class="flash-dot" aria-hidden="true"></span>
+          <strong id="illuminationText">闪光照明 · 25 秒</strong>
+        </div>
+
+        <div class="spirit-status hidden" id="spiritStatus">
+          <div class="spirit-state">
+            <strong>灵魂状态</strong>
+            <span id="spiritStatusText">可以穿墙探路</span>
+          </div>
+          <button type="button" id="spiritReturnButton">返回身体</button>
+        </div>
+
+        <div class="toast" id="toast"></div>
+
+        <div class="update-banner hidden" id="updateBanner">
+          <span id="updateBannerText" role="status" aria-live="polite" aria-atomic="true">新版本已经准备好</span>
+          <button class="update-dismiss" type="button" id="dismissUpdateButton" aria-label="稍后更新">×</button>
+          <button type="button" id="applyUpdateButton">安全刷新</button>
+        </div>
+      </div>
+
+      <div class="inventory-panel">
+        <div class="inventory-heading">
+          <div>
+            <span class="eyebrow">旅行背包</span>
+            <small>剩余物资会带入下一关</small>
+          </div>
+          <div class="capacity">可用 <span id="capacityUsed">0</span> 次</div>
+        </div>
+
+        <div class="inventory-grid" id="inventoryGrid">
+          <button class="item-slot empty" id="hammerSlot" type="button" data-item="hammer" aria-label="砸墙锤，快捷键 1">
+            <span class="keycap">1</span>
+            <span class="item-icon hammer-icon" aria-hidden="true"><i></i></span>
+            <span class="item-name" data-short="锤子" data-tiny="锤">砸墙锤</span>
+            <strong class="item-count" id="hammerCount">—</strong>
+          </button>
+          <button class="item-slot empty" id="bombSlot" type="button" data-item="bomb" aria-label="炸弹，快捷键 2">
+            <span class="keycap">2</span>
+            <span class="item-icon bomb-icon" aria-hidden="true"></span>
+            <span class="item-name" data-short="炸弹" data-tiny="炸">炸弹</span>
+            <strong class="item-count" id="bombCount">—</strong>
+          </button>
+          <button class="item-slot empty" id="flashSlot" type="button" data-item="flash" aria-label="闪光弹，快捷键 3">
+            <span class="keycap">3</span>
+            <span class="item-icon flash-icon" aria-hidden="true"></span>
+            <span class="item-name" data-short="闪光" data-tiny="闪">闪光弹</span>
+            <strong class="item-count" id="flashCount">—</strong>
+          </button>
+          <button class="item-slot empty" id="spiritSlot" type="button" data-item="spirit" aria-label="灵魂出窍卡，快捷键 4">
+            <span class="keycap">4</span>
+            <span class="item-icon spirit-icon" aria-hidden="true"></span>
+            <span class="item-name" data-short="灵魂" data-tiny="魂">灵魂出窍</span>
+            <strong class="item-count" id="spiritCount">—</strong>
+          </button>
+          <button class="item-slot empty" id="torchSlot" type="button" data-item="torch" aria-label="手电筒，快捷键 5">
+            <span class="keycap">5</span>
+            <span class="item-icon torch-icon" aria-hidden="true"></span>
+            <span class="item-name" data-short="手电" data-tiny="灯">手电筒</span>
+            <strong class="item-count" id="torchCount">—</strong>
+          </button>
+          <button class="item-slot empty" id="teleportSlot" type="button" data-item="teleport" aria-label="10格瞬移卡，快捷键 6">
+            <span class="keycap">6</span>
+            <span class="item-icon teleport-icon" aria-hidden="true"></span>
+            <span class="item-name" data-short="瞬移" data-tiny="瞬">10格瞬移</span>
+            <strong class="item-count" id="teleportCount">—</strong>
+          </button>
+        </div>
+
+        <div class="action-strip">
+          <div class="item-help" id="itemHelp">
+            <strong>移动</strong>
+            <span>点击光亮地面自动前往；手机可拖动画面查看周围</span>
+          </div>
+          <div class="action-buttons">
+            <button class="text-button" id="cancelButton" type="button" disabled>取消选择 <kbd>Esc</kbd></button>
+            <button class="text-button" id="restartButton" type="button">重开本关 <kbd>R</kbd></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <nav class="level-track" aria-label="关卡进度" id="levelTrack"></nav>
+  </main>
+
+  <div class="modal-backdrop visible" id="introModal">
+    <section class="modal intro-card boot-pending" id="introCard" role="dialog" aria-modal="true" aria-busy="true" aria-labelledby="introTitle">
+      <div class="sigil" aria-hidden="true"><span>✦</span></div>
+      <span class="eyebrow" id="introEyebrow">破壁迷途</span>
+      <h2 id="introTitle">坠入二十层迷宫</h2>
+      <div class="campaign-story" id="campaignStory">
+        <p>回家的路上，脚下的石板突然塌了。你掉进一座废弃矿井，身后的洞口也被碎石封住。沿着矿工留下的星形路标，穿过地下二十层，就能找到出口。</p>
+        <p>你会<strong>灵魂出窍</strong>。灵魂能穿墙探路，身体留在原地。找到方向后，再回到身体，用锤子敲开木墙。</p>
+      </div>
+      <p id="introDescription">每进入一层，你都以灵魂状态开始。</p>
+      <p class="boot-status" id="bootStatus" role="status"><strong>正在准备迷宫…</strong><span>若长时间无响应，请刷新；仍无法进入时，请更新微信或改用系统浏览器。</span></p>
+      <div class="intro-rules touch-rules">
+        <span><i>①</i> 身体状态下点亮地移动</span>
+        <span><i>②</i> 选择道具再点目标</span>
+        <span><i>↗</i> 自动走近并执行</span>
+      </div>
+      <details class="desktop-rules">
+        <summary>电脑键盘操作</summary>
+        <div class="intro-rules">
+          <span><i>W</i> 四向移动</span>
+          <span><i>1–6</i> 选择道具</span>
+          <span><i>R</i> 无损重开</span>
+          <span><i>Esc</i> 取消选择</span>
+        </div>
+      </details>
+      <div class="intro-actions">
+        <button class="secondary-button hidden" id="continueButton" type="button" disabled>继续上次进度</button>
+        <button class="primary-button" id="startButton" type="button" disabled>进入第一层</button>
+        <button class="secondary-button main-tutorial-button hidden" id="mainTutorialButton" type="button" disabled>第一次玩？先体验主线教学</button>
+        <button class="secondary-button daily-button" id="dailyButton" type="button" disabled>今日迷局 · 七日可补玩 <span aria-hidden="true">✦</span></button>
+        <button class="secondary-button seeded-button" id="seededButton" type="button" disabled>无尽迷局 · 种子星图 <span aria-hidden="true">⌘</span></button>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop onboarding-reveal" id="onboardingRevealModal" aria-hidden="true">
+    <section class="modal onboarding-reveal-card" role="dialog" aria-modal="true" aria-labelledby="onboardingRevealTitle" aria-describedby="onboardingRevealDescription">
+      <div class="onboarding-star" aria-hidden="true">✦</div>
+      <h2 id="onboardingRevealTitle">这就是第二层迷宫的入口！</h2>
+      <p id="onboardingRevealDescription">你的身体还在起点。回到地图后，点「返回身体」，再用锤子开路。</p>
+      <button class="primary-button" id="onboardingRevealButton" type="button">回到地图</button>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="completeModal">
+    <section class="modal result-card" role="dialog" aria-modal="true" aria-labelledby="resultTitle">
+      <div class="result-scroll-body">
+      <div class="result-spark" aria-hidden="true">✦</div>
+      <span class="eyebrow" id="resultKicker">关卡完成</span>
+      <h2 id="resultTitle" tabindex="-1">石径初醒</h2>
+      <div class="stars" id="resultStars" role="img" aria-label="评级"></div>
+      <div class="challenge-result hidden" id="challengeResult">
+        <span id="challengeResultLabel">三星印记</span>
+        <strong id="challengeResultName"></strong>
+        <small id="challengeResultDetail"></small>
+      </div>
+      <div class="result-stats">
+        <div><span>综合工具值（不计星）</span><strong id="statBreaks">1</strong></div>
+        <div><span>计星路径成本</span><strong id="statRouteCost">1</strong></div>
+        <div><span>步数</span><strong id="statSteps">4</strong></div>
+        <div><span>新点亮格</span><strong id="statReveal">5</strong></div>
+        <div><span>剩余 锤 / 炸 / 闪</span><strong id="statHammer">2 / 0 / 2</strong></div>
+        <div><span>剩余 魂 / 灯 / 瞬</span><strong id="statUtility">0 / 2 / 2</strong></div>
+      </div>
+      <p id="resultNote">一锤开路，干净利落。</p>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-button result-share-button" id="resultShareButton" type="button">分享本关成绩 <span aria-hidden="true">↗</span></button>
+        <p class="result-share-status" id="resultShareStatus" role="status" aria-live="polite"></p>
+        <button class="secondary-button" id="replayButton" type="button">再试一次</button>
+        <button class="primary-button" id="nextButton" type="button">下一关 <span>→</span></button>
+        <button class="secondary-button hidden result-main-button" id="resultMainButton" type="button">返回主线</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="settingsModal">
+    <section class="modal settings-card" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div class="settings-close-row"><button class="modal-close" id="closeSettings" type="button" aria-label="关闭设置">×</button></div>
+      <span class="eyebrow">游戏设置</span>
+      <h2 id="settingsTitle">按你的节奏探索</h2>
+      <div class="progress-summary" id="progressSummary" aria-live="polite"></div>
+      <fieldset hidden>
+        <legend>开局亮屏时长</legend>
+        <div class="segmented" id="previewOptions">
+          <button type="button" data-duration="2">2 秒</button>
+          <button type="button" data-duration="3">3 秒</button>
+          <button type="button" data-duration="5" class="active">5 秒</button>
+          <button type="button" data-duration="0">不限时</button>
+        </div>
+        <small class="daily-preview-note" id="dailyPreviewNote">今日迷局与种子星图固定亮图 5 秒。主线每关以灵魂状态开始。</small>
+      </fieldset>
+      <label class="toggle-row">
+        <span><strong>黑暗残影</strong><small>保留极淡的地图轮廓</small></span>
+        <input type="checkbox" id="afterimageToggle" />
+      </label>
+      <label class="toggle-row">
+        <span><strong>音效</strong><small>纸页、破墙与星光反馈</small></span>
+        <input type="checkbox" id="soundToggle" checked />
+      </label>
+      <div class="save-actions">
+        <button class="secondary-button" id="exportSaveButton" type="button">复制主线存档码</button>
+        <button class="secondary-button" id="importSaveButton" type="button">导入主线存档码</button>
+      </div>
+      <button class="secondary-button wide hidden" id="installButton" type="button">安装到桌面 · 离线游玩</button>
+      <button class="secondary-button wide hint-button" id="hintButton" type="button">查看本关提示 · 不消耗物资</button>
+      <button class="secondary-button wide rescue-button" id="rescueButton" type="button">卡关救援 · 使用本关保底物资</button>
+      <button class="secondary-button wide danger-button" id="resetProgress" type="button">重置全部二十关进度</button>
+      <p class="version-note">版本 1.6.0 · 存档码只备份主线进度与设置，不含每日成绩和种子局</p>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="seededModal">
+    <section class="modal seeded-card" role="dialog" aria-modal="true" aria-labelledby="seededTitle" aria-describedby="seededDescription">
+      <button class="modal-close" id="closeSeeded" type="button" aria-label="关闭种子星图">×</button>
+      <span class="eyebrow">无尽迷局 · 种子星图</span>
+      <h2 id="seededTitle" tabindex="-1">用同一个挑战码，<br />走进同一座迷宫。</h2>
+      <p id="seededDescription">选择难度并输入严格 6 位挑战码。相同难度与挑战码会生成完全相同的地图；本局独立计星，无闪三星还会点亮“无闪记忆”星标。</p>
+      <fieldset class="seeded-difficulty">
+        <legend>难度</legend>
+        <div class="segmented seeded-presets" id="seedPresetOptions" role="group" aria-label="种子星图难度">
+          <button type="button" id="seedPresetS" data-seed-preset="S" aria-pressed="false"><strong>S</strong><span>短途</span></button>
+          <button type="button" id="seedPresetM" data-seed-preset="M" class="active" aria-pressed="true"><strong>M</strong><span>迷城</span></button>
+          <button type="button" id="seedPresetD" data-seed-preset="D" aria-pressed="false"><strong>D</strong><span>深渊</span></button>
+        </div>
+      </fieldset>
+      <label class="seed-code-label" for="seedCodeInput">
+        <span>6 位挑战码</span>
+        <input id="seedCodeInput" type="text" maxlength="6" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" pattern="[2-9A-HJ-NP-Z]{6}" aria-describedby="seedCodeHelp seedCodeStatus" />
+      </label>
+      <small id="seedCodeHelp" class="seed-code-help">可用 2–9 与大写字母，排除 0、1、I、O。</small>
+      <p class="seed-code-status" id="seedCodeStatus" role="status" aria-live="polite"></p>
+      <div class="seeded-actions">
+        <button class="secondary-button" id="randomSeedButton" type="button">随机挑战码</button>
+        <button class="primary-button" id="startSeededButton" type="button">开始这张星图 <span>→</span></button>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="semanticMapModal">
+    <section class="modal semantic-map-card" role="dialog" aria-modal="true" aria-labelledby="semanticMapTitle" aria-describedby="semanticMapHelp">
+      <button class="modal-close" id="closeSemanticMap" type="button" aria-label="关闭文本地图检查器">×</button>
+      <span class="eyebrow">无障碍地图</span>
+      <h2 id="semanticMapTitle">逐格检查迷宫</h2>
+      <p id="semanticMapHelp">方向键在格子间移动；Home / End 跳到本行两端，按住 Control 可跳到地图首尾。探索阶段激活格子会关闭地图，并移动或对该格使用当前选中的道具。没有选中道具时，可在当前已由灵魂、闪光弹或手电筒揭示材质的墙格按 Enter 或空格切换记忆钉；钉住的墙在黑暗后仍保留材质。使用手机读屏时，可左右轻扫逐格浏览和激活。检查期间会暂停照明倒计时，只显示当前视野本来允许辨认的信息。</p>
+      <div class="semantic-map-legend" aria-hidden="true">
+        <span>人 角色</span><span>魂 灵魂</span><span>★ 星星</span><span>✧ 星屑</span><span>木 木墙</span><span>裂 裂纹石墙</span><span>石 石墙</span><span>钉 记忆钉（暗中保留材质）</span><span>墙 黑墙</span><span>？ 未照亮</span>
+      </div>
+      <div class="semantic-map-scroll" id="semanticMapScroll">
+        <div class="semantic-map-grid" id="semanticMapGrid" role="grid" aria-label="可逐格浏览的迷宫文本地图"></div>
+      </div>
+      <p class="semantic-map-position" id="semanticMapPosition" aria-hidden="true"></p>
+    </section>
+  </div>
+
+  <noscript><p class="noscript">需要启用 JavaScript 才能进入失光迷宫。</p></noscript>
+  <script src="maze-levels.js?v=1.6.0"></script>
+  <script src="seeded-levels.js?v=1.6.0"></script>
+  <script src="daily-levels.js?v=1.6.0"></script>
+  <script src="game.js?v=1.6.0"></script>
+</body>
+</html>
