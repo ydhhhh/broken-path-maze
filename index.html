@@ -25,7 +25,7 @@
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="assets/icon-192.png" />
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="stylesheet" href="styles.css?v=1.6.0" />
+  <link rel="stylesheet" href="styles.css?v=1.6.1" />
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -64,49 +64,57 @@
         <p id="levelObjective">拾取锤子，敲开木墙，走向星星。</p>
       </div>
 
-      <div class="game-stage" id="gameStage">
-        <canvas id="gameCanvas" aria-label="游戏地图。点击光亮地面移动，先选择道具再点击目标；按 M 打开文本地图检查器。" aria-describedby="gameStatus itemHelp" tabindex="0"></canvas>
-        <p class="sr-only" id="gameStatus" role="status" aria-live="polite"></p>
-
-        <div class="preview-panel hidden" id="previewPanel">
-          <span>记住道路<small class="preview-wall-legend" aria-label="墙体图例：木纹是可以破坏的木墙，石块是不可以破坏的石墙"><i class="preview-wood-swatch" aria-hidden="true"></i>木可破 · <i class="preview-stone-swatch" aria-hidden="true"></i>石不可破</small><small class="preview-ember-legend hidden" id="emberPreviewLegend">琥珀色裂纹石墙：锤击耗锤且不碎 · 炸弹可破</small><small class="preview-gesture" id="previewGesture">按住拖动放大</small></span>
-          <strong id="previewCountdown" role="timer" aria-live="off" aria-atomic="true" aria-label="亮屏剩余 5 秒">5</strong>
-          <button type="button" id="previewSemanticMapButton">文本地图</button>
-          <button type="button" id="skipPreview">空格跳过</button>
-        </div>
-
-        <span class="sr-only" id="memoryPinRule">记忆钉：先用灵魂、闪光弹或手电筒揭示墙体材质，再轻点已揭示的墙放置记忆钉；照明消失后仍可辨认。</span>
-
+      <div class="map-area">
         <div class="tutorial-bubble hidden" id="tutorialBubble">
           <span class="tutorial-step" id="tutorialStep">01</span>
           <p id="tutorialText"></p>
         </div>
 
-        <div class="direction-indicator hidden" id="directionIndicator" aria-hidden="true">
-          <span>✦</span><small id="directionText"></small>
-        </div>
+        <div class="game-stage" id="gameStage">
+          <canvas id="gameCanvas" aria-label="游戏地图。点击光亮地面移动，先选择道具再点击目标；按 M 打开文本地图检查器。" aria-describedby="gameStatus itemHelp" tabindex="0"></canvas>
+          <p class="sr-only" id="gameStatus" role="status" aria-live="polite"></p>
 
-        <button class="camera-reset hidden" id="cameraResetButton" type="button" aria-label="让视角回到角色">◎</button>
-
-        <div class="illumination-status hidden" id="illuminationStatus" role="timer" aria-live="off" aria-atomic="true" aria-label="闪光照明剩余 25 秒">
-          <span class="flash-dot" aria-hidden="true"></span>
-          <strong id="illuminationText">闪光照明 · 25 秒</strong>
-        </div>
-
-        <div class="spirit-status hidden" id="spiritStatus">
-          <div class="spirit-state">
-            <strong>灵魂状态</strong>
-            <span id="spiritStatusText">可以穿墙探路</span>
+          <div class="preview-panel hidden" id="previewPanel">
+            <span>记住道路<small class="preview-wall-legend" aria-label="墙体图例：木纹是可以破坏的木墙，石块是不可以破坏的石墙"><i class="preview-wood-swatch" aria-hidden="true"></i>木可破 · <i class="preview-stone-swatch" aria-hidden="true"></i>石不可破</small><small class="preview-ember-legend hidden" id="emberPreviewLegend">琥珀色裂纹石墙：锤击耗锤且不碎 · 炸弹可破</small><small class="preview-gesture" id="previewGesture">按住拖动放大</small></span>
+            <strong id="previewCountdown" role="timer" aria-live="off" aria-atomic="true" aria-label="亮屏剩余 5 秒">5</strong>
+            <button type="button" id="previewSemanticMapButton">文本地图</button>
+            <button type="button" id="skipPreview">空格跳过</button>
           </div>
-          <button type="button" id="spiritReturnButton">返回身体</button>
+
+          <span class="sr-only" id="memoryPinRule">记忆钉：先用灵魂、闪光弹或手电筒揭示墙体材质，再轻点已揭示的墙放置记忆钉；照明消失后仍可辨认。</span>
+
+          <div class="direction-indicator hidden" id="directionIndicator" aria-hidden="true">
+            <span>✦</span><small id="directionText"></small>
+          </div>
+
+          <button class="camera-reset hidden" id="cameraResetButton" type="button" aria-label="让视角回到角色">◎</button>
+
+          <div class="illumination-status hidden" id="illuminationStatus" role="timer" aria-live="off" aria-atomic="true" aria-label="闪光照明剩余 25 秒">
+            <span class="flash-dot" aria-hidden="true"></span>
+            <strong id="illuminationText">闪光照明 · 25 秒</strong>
+          </div>
+
+          <div class="toast" id="toast"></div>
+
+          <div class="update-banner hidden" id="updateBanner">
+            <span id="updateBannerText" role="status" aria-live="polite" aria-atomic="true">新版本已经准备好</span>
+            <button class="update-dismiss" type="button" id="dismissUpdateButton" aria-label="稍后更新">×</button>
+            <button type="button" id="applyUpdateButton">安全刷新</button>
+          </div>
         </div>
 
-        <div class="toast" id="toast"></div>
-
-        <div class="update-banner hidden" id="updateBanner">
-          <span id="updateBannerText" role="status" aria-live="polite" aria-atomic="true">新版本已经准备好</span>
-          <button class="update-dismiss" type="button" id="dismissUpdateButton" aria-label="稍后更新">×</button>
-          <button type="button" id="applyUpdateButton">安全刷新</button>
+        <div class="map-controls">
+          <div class="map-zoom" role="group" aria-label="迷宫缩放">
+            <button type="button" id="zoomInButton" aria-controls="gameCanvas">放大</button>
+            <button type="button" id="zoomOutButton" aria-controls="gameCanvas">缩小</button>
+          </div>
+          <div class="spirit-status hidden" id="spiritStatus">
+            <div class="spirit-state">
+              <strong>灵魂状态</strong>
+              <span id="spiritStatusText">可以穿墙探路</span>
+            </div>
+            <button type="button" id="spiritReturnButton">返回身体</button>
+          </div>
         </div>
       </div>
 
@@ -282,7 +290,7 @@
       <button class="secondary-button wide hint-button" id="hintButton" type="button">查看本关提示 · 不消耗物资</button>
       <button class="secondary-button wide rescue-button" id="rescueButton" type="button">卡关救援 · 使用本关保底物资</button>
       <button class="secondary-button wide danger-button" id="resetProgress" type="button">重置全部二十关进度</button>
-      <p class="version-note">版本 1.6.0 · 存档码只备份主线进度与设置，不含每日成绩和种子局</p>
+      <p class="version-note">版本 1.6.1 · 存档码只备份主线进度与设置，不含每日成绩和种子局</p>
     </section>
   </div>
 
@@ -330,9 +338,9 @@
   </div>
 
   <noscript><p class="noscript">需要启用 JavaScript 才能进入失光迷宫。</p></noscript>
-  <script src="maze-levels.js?v=1.6.0"></script>
-  <script src="seeded-levels.js?v=1.6.0"></script>
-  <script src="daily-levels.js?v=1.6.0"></script>
-  <script src="game.js?v=1.6.0"></script>
+  <script src="maze-levels.js?v=1.6.1"></script>
+  <script src="seeded-levels.js?v=1.6.1"></script>
+  <script src="daily-levels.js?v=1.6.1"></script>
+  <script src="game.js?v=1.6.1"></script>
 </body>
 </html>

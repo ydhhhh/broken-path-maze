@@ -9,6 +9,9 @@ const TILE = { STONE: "#", WOOD: "W", CRACKED: "R", FLOOR: ".", HAMMER: "H", BOM
 const FIRST_LEVEL_SPIRIT_ROUTE = [
   [2,7], [3,7], [3,5], [6,5], [9,5], [11,5], [11,3],
 ];
+const MAP_ZOOM_LEVELS = [.55, .7, .85, 1, 1.25, 1.55, 1.9, 2.25];
+const DEFAULT_MAP_ZOOM = MAP_ZOOM_LEVELS.indexOf(1);
+const SPIRIT_LIGHT_FADE_MS = 210;
 
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
@@ -27,6 +30,8 @@ const teleportSlot = document.getElementById("teleportSlot");
 const teleportCount = document.getElementById("teleportCount");
 const spiritReturnButton = document.getElementById("spiritReturnButton");
 const spiritStatusText = document.getElementById("spiritStatusText");
+const zoomInButton = document.getElementById("zoomInButton");
+const zoomOutButton = document.getElementById("zoomOutButton");
 const itemHelp = document.getElementById("itemHelp");
 const previewPanel = document.getElementById("previewPanel");
 const previewCountdown = document.getElementById("previewCountdown");
@@ -669,6 +674,7 @@ function shiftGameClock(delta,pauseStartedAt=pausedAt) {
   if (state.flashEnds > pauseStartedAt) state.flashEnds += delta;
   else if (state.flashEnds > 0) state.flashEnds = 0;
   if (state.phase === "fading" && state.fadeStarted > 0) state.fadeStarted += delta;
+  if (state.spiritLightTransition) state.spiritLightTransition.startedAt += delta;
   state.lastProgress += delta;
   state.pulses.forEach((pulse) => { pulse.created += delta; });
 }
@@ -1642,6 +1648,8 @@ function createRunState(level,index,inventory = emptyInventory(),{mode="campaign
     autoRoute: null,
     moveDestination: null,
     cameraPan: { x:0, y:0 },
+    cameraZoom: DEFAULT_MAP_ZOOM,
+    spiritCameraAnchor: null,
     previewLens: null,
     phase: startsInDark ? "explore" : "preview",
     previewEnds: startsInDark ? 0 : performance.now() + duration * 1000,
@@ -1654,6 +1662,7 @@ function createRunState(level,index,inventory = emptyInventory(),{mode="campaign
     spiritScoutedCurrent: false,
     soul: null,
     spiritVisible: new Set(),
+    spiritLightTransition: null,
     spiritOriginVisible: new Set(),
     fade: startsInDark ? 1 : 0,
     fadeStarted: 0,
@@ -1907,6 +1916,7 @@ function restoreRunSnapshot(snapshot) {
   state.spiritMode=clean.spiritMode;
   state.spiritScoutedCurrent=clean.spiritScoutedCurrent;
   state.soul=clean.soul?{...clean.soul,drawX:clean.soul.x,drawY:clean.soul.y}:null;
+  state.spiritCameraAnchor=clean.soul?{x:clean.soul.x,y:clean.soul.y}:null;
   state.visible=computeVisible();
   state.spiritOriginVisible=new Set(state.visible);
   state.spiritVisible=new Set();
@@ -1980,6 +1990,7 @@ function restoreDailyRunSnapshot(snapshot){
   state.spiritMode=clean.spiritMode;
   state.spiritScoutedCurrent=clean.spiritScoutedCurrent;
   state.soul=clean.soul?{...clean.soul,drawX:clean.soul.x,drawY:clean.soul.y}:null;
+  state.spiritCameraAnchor=clean.soul?{x:clean.soul.x,y:clean.soul.y}:null;
   state.visible=computeVisible();
   state.spiritOriginVisible=new Set(state.visible);
   state.spiritVisible=new Set();
@@ -2228,11 +2239,36 @@ function canSoulEnter(x, y) {
   return inBounds(x, y) && x > 0 && y > 0 && x < state.map[0].length - 1 && y < state.map.length - 1;
 }
 
+function spiritLightAt(cellKey, now) {
+  const target = state.spiritVisible.has(cellKey) ? 1 : 0;
+  const transition = state.spiritLightTransition;
+  const origin = transition?.from.get(cellKey);
+  if (origin === undefined) return target;
+  const elapsed = Math.max(0, Math.min(1, (now - transition.startedAt) / SPIRIT_LIGHT_FADE_MS));
+  const eased = elapsed * elapsed * (3 - 2 * elapsed);
+  return origin + (target - origin) * eased;
+}
+
+function setSpiritVisibility(next) {
+  const previous = state.spiritVisible;
+  if (previous.size === next.size && [...previous].every(cellKey => next.has(cellKey))) return;
+  const now = performance.now();
+  const inTransition = state.spiritLightTransition?.from.keys() || [];
+  const changed = new Set([...previous, ...next, ...inTransition]);
+  const from = new Map();
+  for (const cellKey of changed) {
+    const opacity = spiritLightAt(cellKey, now);
+    if (opacity !== (next.has(cellKey) ? 1 : 0)) from.set(cellKey, opacity);
+  }
+  state.spiritVisible = next;
+  state.spiritLightTransition = from.size ? {from, startedAt:now} : null;
+}
+
 function updateSpiritVisible() {
   if (!state.spiritMode || !state.soul) return;
   const { x, y } = state.soul;
   if (isFloor(x, y)) {
-    state.spiritVisible = computeVisibleFrom(x, y);
+    setSpiritVisibility(computeVisibleFrom(x, y));
     if(!state.spiritScoutedCurrent){
       const reachedNewRegion=[...state.spiritVisible].some((cellKey)=>{
         if(state.spiritOriginVisible.has(cellKey))return false;
@@ -2247,8 +2283,8 @@ function updateSpiritVisible() {
         else showToast("有效侦察 · 已进入身体原视野外的新区域");
       }
     }
-  } else {
-    state.spiritVisible.add(key(x, y));
+  } else if (!state.spiritVisible.has(key(x, y))) {
+    setSpiritVisibility(new Set([...state.spiritVisible, key(x, y)]));
   }
   if(state.tutorialPhase!=="spiritExplore")return;
   if(x===state.star[0]&&y===state.star[1]){
@@ -2295,6 +2331,7 @@ function startSpiritMode({atEntry=false}={}) {
   state.soul = { x:state.player.x, y:state.player.y, drawX:state.player.x, drawY:state.player.y, facing:state.player.facing };
   state.spiritOriginVisible = new Set(state.visible);
   state.spiritVisible = computeVisibleFrom(state.soul.x, state.soul.y);
+  state.spiritLightTransition = null;
   resetCamera();
   state.lastProgress = performance.now();
   if (state.tutorialPhase === "spiritUse") {
@@ -2318,6 +2355,8 @@ function returnSpirit() {
   state.spiritMode = false;
   state.spiritScoutedCurrent = false;
   state.soul = null;
+  state.spiritCameraAnchor = null;
+  state.spiritLightTransition = null;
   state.spiritVisible.clear();
   state.spiritOriginVisible.clear();
   state.locked = false;
@@ -2877,7 +2916,6 @@ function animateSoulTo(nx, ny, onComplete = null) {
     if (state?.spiritMode) playTone("blocked");
     return false;
   }
-  resetCamera();
   const activeState = state;
   const soul = state.soul;
   const fromX = soul.x, fromY = soul.y;
@@ -2897,6 +2935,7 @@ function animateSoulTo(nx, ny, onComplete = null) {
       soul.drawY = ny;
       activeState.locked = false;
       updateSpiritVisible();
+      updateCameraResetButton();
       updateCanvasDescription();
       if (state === activeState && activeState.spiritMode && activeState.tutorialPhase!=="spiritReveal" && onComplete) onComplete();
       if(state===activeState&&!activeState.locked)scheduleRunSnapshot();
@@ -3779,8 +3818,8 @@ function showTutorialForState() {
   const spiritHint=spiritStep===0&&atSpawn
     ? "灵魂可以穿墙。点你右边亮起的石墙，向右移动一格。"
     : spiritStep===1 ? "你正在石墙里。点下一格金框，穿过石墙。"
-    : spiritStep===FIRST_LEVEL_SPIRIT_ROUTE.length ? "星门就在前方。点金色星标，飞到那里。"
-    : "跟着金框往右上方探路，找到下一层入口。";
+    : spiritStep===FIRST_LEVEL_SPIRIT_ROUTE.length ? "星门就在前方。点金色星标，飞到那里。看不到星标时，可以拖动迷宫。"
+    : "跟着金框往右上方探路，找到下一层入口。记住途中的木墙位置，回到身体后能用锤子敲开。看不到金框时，可以拖动迷宫。";
   const text = {
     spiritUse: ["01", "身体已回到起点。点击背包里的「灵魂出窍」，继续找星门。"],
     spiritExplore: ["01", spiritHint],
@@ -3815,7 +3854,9 @@ function showTutorialForState() {
   torchSlot.classList.toggle("tutorial-focus", state.tutorialPhase === "torchSelect");
   spiritReturnButton.classList.toggle("tutorial-focus", state.tutorialPhase === "spiritReturn");
   const tutorialTarget=currentTutorialTarget();
-  if (tutorialTarget) pulseAt(tutorialTarget[0], tutorialTarget[1], "#ffe08b", 1.35);
+  if (tutorialTarget && state.tutorialPhase !== "spiritExplore") {
+    pulseAt(tutorialTarget[0], tutorialTarget[1], "#ffe08b", 1.35);
+  }
   updateInventory();
 }
 
@@ -3918,6 +3959,9 @@ function flashCameraToggleAvailable(now=performance.now()) {
 function updateCameraResetButton(now=performance.now()) {
   const button=document.getElementById("cameraResetButton");
   const flashToggle=flashCameraToggleAvailable(now);
+  const zoomEnabled=Boolean(state?.phase==="explore"&&!state.complete&&!(flashToggle&&state.flashOverview!==false));
+  if(zoomInButton)zoomInButton.disabled=!zoomEnabled||state.cameraZoom===MAP_ZOOM_LEVELS.length-1;
+  if(zoomOutButton)zoomOutButton.disabled=!zoomEnabled||state.cameraZoom===0;
   button.classList.toggle("mode-toggle",flashToggle);
   if(flashToggle){
     const showingOverview=state.flashOverview!==false;
@@ -3929,7 +3973,14 @@ function updateCameraResetButton(now=performance.now()) {
     return;
   }
   const isPanned = Boolean(state && (Math.abs(state.cameraPan.x) > 1 || Math.abs(state.cameraPan.y) > 1));
-  button.classList.toggle("hidden", !isPanned);
+  let soulOffscreen = false;
+  if(state?.spiritMode&&state.soul){
+    const layout=getLayout(now);
+    const x=layout.ox+(state.soul.drawX+.5)*layout.cell;
+    const y=layout.oy+(state.soul.drawY+.5)*layout.cell;
+    soulOffscreen=x<0||y<0||x>canvas.width||y>canvas.height;
+  }
+  button.classList.toggle("hidden", !isPanned&&!soulOffscreen);
   button.textContent="◎";
   button.setAttribute("aria-label",state?.spiritMode?"回到灵魂所在光亮区域":"回到当前光亮区域");
   button.title=state?.spiritMode?"回到灵魂所在光亮区域":"回到当前光亮区域";
@@ -3962,7 +4013,37 @@ function resetCamera() {
   if (!state) return;
   state.cameraPan.x = 0;
   state.cameraPan.y = 0;
+  if(state.spiritMode&&state.soul){
+    state.spiritCameraAnchor={x:state.soul.drawX,y:state.soul.drawY};
+  }
   updateCameraResetButton();
+}
+
+function adjustMapZoom(direction) {
+  const now=performance.now();
+  if(state?.phase!=="explore"||state.complete||
+    (flashCameraToggleAvailable(now)&&state.flashOverview!==false))return false;
+  const index=Math.max(0,Math.min(MAP_ZOOM_LEVELS.length-1,state.cameraZoom+direction));
+  if(index===state.cameraZoom)return false;
+  clearCanvasPointerGesture();
+  const before=getLayout(now);
+  const focus=state.spiritMode?state.soul:state.player;
+  const focusX=before.ox+(focus.drawX+.5)*before.cell;
+  const focusY=before.oy+(focus.drawY+.5)*before.cell;
+  const focusVisible=focusX>=0&&focusX<=canvas.width&&focusY>=0&&focusY<=canvas.height;
+  const screenX=focusVisible?focusX:canvas.width/2;
+  const screenY=focusVisible?focusY:canvas.height/2;
+  const worldX=(screenX-before.ox)/before.cell;
+  const worldY=(screenY-before.oy)/before.cell;
+  state.cameraZoom=index;
+  const after=getLayout(now);
+  state.cameraPan.x=(after.effectivePanX||0)+screenX-worldX*after.cell-after.ox;
+  state.cameraPan.y=(after.effectivePanY||0)+screenY-worldY*after.cell-after.oy;
+  clampCameraPanToViewport();
+  state.lastProgress=now;
+  updateCameraResetButton(now);
+  render(now);
+  return true;
 }
 
 function cameraRegionBounds(cells,focus,width=state.map[0].length,height=state.map.length) {
@@ -4009,40 +4090,42 @@ function getLayout(now=performance.now()) {
     oy:previewSafeTop+(availableH-fittedCell*height)/2,
     mode:"overview",
   };
-  if(!compact||(state.phase==="preview"&&!previewMagnified))return overview;
+  const zoom=state.phase==="explore"?MAP_ZOOM_LEVELS[state.cameraZoom]:1;
+  if((!compact&&zoom===1)||(state.phase==="preview"&&!previewMagnified))return overview;
   const tutorialTarget=currentTutorialTarget();
-  let tutorialSafeTop=0;
-  if(tutorialTarget&&!tutorialBubble.classList.contains("hidden")){
-    const canvasRect=canvas.getBoundingClientRect?.();
-    const bubbleRect=tutorialBubble.getBoundingClientRect?.();
-    const canvasWidth=Number(canvasRect?.width),canvasTop=Number(canvasRect?.top),bubbleBottom=Number(bubbleRect?.bottom);
-    if(Number.isFinite(canvasWidth)&&canvasWidth>0&&Number.isFinite(canvasTop)&&Number.isFinite(bubbleBottom)&&bubbleBottom>canvasTop){
-      const scale=canvas.width/canvasWidth;
-      tutorialSafeTop=Math.min(canvas.height*.6,Math.max(0,(bubbleBottom-canvasTop+8)*scale));
-    }
-  }
-  const flashOverview=state.phase==="explore"&&state.flashEnds>now&&state.flashOverview!==false
+  const flashOverview=compact&&state.phase==="explore"&&state.flashEnds>now&&state.flashOverview!==false
     &&!state.selected&&!state.spiritMode&&!tutorialTarget;
   if(flashOverview)return {...overview,mode:"flash-overview"};
-  const activeFocus=state.spiritMode&&state.soul?state.soul:state.player;
-  const focus=previewMagnified?state.previewLens:tutorialTarget
-    ? {x:tutorialTarget[0],y:tutorialTarget[1],drawX:tutorialTarget[0],drawY:tutorialTarget[1]}
-    : activeFocus;
-  const focusX = focus.drawX ?? focus.x;
-  const focusY = focus.drawY ?? focus.y;
-  let cell,worldCenterX=focusX+.5,worldCenterY=focusY+.5,mode="local",panWeight=1;
+
+  const focus=state.player;
+  let cell,worldCenterX,worldCenterY,mode,panWeight=1;
   if(previewMagnified){
     cell=Math.max(fittedCell,44*dpr);
+    worldCenterX=state.previewLens.x+.5;
+    worldCenterY=state.previewLens.y+.5;
     mode="preview-lens";
+  }else if(state.spiritMode&&state.soul){
+    // Moving the soul, changing its light, and advancing the tutorial share this fixed frame.
+    const anchor=state.spiritCameraAnchor || state.player;
+    cell=(compact?48*dpr:fittedCell)*zoom;
+    worldCenterX=anchor.x+.5;
+    worldCenterY=anchor.y+.5;
+    mode="spirit-local";
+  }else if(!compact){
+    cell=fittedCell*zoom;
+    worldCenterX=focus.drawX+.5;
+    worldCenterY=focus.drawY+.5;
+    mode="zoomed";
   }else{
-    const cells=state.spiritMode?state.spiritVisible:state.visible;
-    const bounds=cameraRegionBounds(cells,{x:focusX,y:focusY},width,height);
+    const focusX=tutorialTarget?.[0]??focus.drawX??focus.x;
+    const focusY=tutorialTarget?.[1]??focus.drawY??focus.y;
+    const bounds=cameraRegionBounds(state.visible,{x:focusX,y:focusY},width,height);
     const localPadding=12*dpr;
     const regionFit=Math.min(
       Math.max(1,canvas.width-localPadding*2)/bounds.width,
       Math.max(1,canvas.height-localPadding*2)/bounds.height,
     );
-    const focusedCell=Math.max(44*dpr,Math.min(52*dpr,regionFit));
+    const focusedCell=Math.max(44*dpr,Math.min(52*dpr,regionFit))*zoom;
     const progress=state.phase==="fading"
       ? Math.max(0,Math.min(1,state.fade)) : 1;
     const eased=progress*progress*(3-2*progress);
@@ -4054,14 +4137,13 @@ function getLayout(now=performance.now()) {
     worldCenterX=state.phase==="fading"?width/2+(localCenterX-width/2)*eased:localCenterX;
     worldCenterY=state.phase==="fading"?height/2+(localCenterY-height/2)*eased:localCenterY;
     panWeight=state.phase==="fading"?eased:1;
-    mode=state.spiritMode?"spirit-local":state.phase==="fading"?"fading-local":"local";
+    mode=state.phase==="fading"?"fading-local":"local";
   }
   const edge = 10 * dpr;
   const boardWidth = cell * width;
   const boardHeight = cell * height;
   const centerX = canvas.width / 2 - worldCenterX * cell;
-  const visibleCenterY=tutorialSafeTop+(canvas.height-tutorialSafeTop)/2;
-  const centerY = visibleCenterY - worldCenterY * cell;
+  const centerY = canvas.height / 2 - worldCenterY * cell;
   const minX = canvas.width - boardWidth - edge;
   const minY = canvas.height - boardHeight - edge;
   const pan = previewMagnified ? state.previewLens : state.cameraPan;
@@ -4115,7 +4197,7 @@ function resizeCanvas() {
   lastCanvasPixelRatio=dpr;
   lastRenderedLayout=null;
   if(state){
-    if(majorWidthChange){state.cameraPan.x=0;state.cameraPan.y=0;}
+    if(majorWidthChange)resetCamera();
     else if(previousCssWidth>0&&previousDpr>0){
       state.cameraPan.x*=dpr/previousDpr;
       state.cameraPan.y*=dpr/previousDpr;
@@ -4209,6 +4291,8 @@ function updateParticles(dt) {
 }
 
 function render(now) {
+  const transition=state.spiritLightTransition;
+  if(transition&&now-transition.startedAt>=SPIRIT_LIGHT_FADE_MS)state.spiritLightTransition=null;
   const layout=getLayout(now);
   lastRenderedLayout=layout;
   const { cell, ox, oy } = layout;
@@ -4246,6 +4330,12 @@ function isShown(x, y, now = performance.now()) {
   return state.visible.has(key(x, y)) ? 1 : 0;
 }
 
+function renderCellVisibility(x, y, now) {
+  const cellKey=key(x, y);
+  if (!state.spiritMode || state.memoryPins.has(cellKey)) return isShown(x, y, now);
+  return spiritLightAt(cellKey, now);
+}
+
 function isWallMaterialRevealed(x, y, now = performance.now()) {
   if (state.memoryPins.has(key(x,y))) return true;
   if (state.spiritMode) return state.spiritVisible.has(key(x,y));
@@ -4281,10 +4371,10 @@ function drawBackdrop(now, cell) {
 }
 
 function drawTile(x, y, cell, ox, oy, now, torchPreview, tutorialTarget, shakePulses) {
-  const shown = isShown(x, y, now);
+  const shown = renderCellVisibility(x, y, now);
   const px = ox + x * cell, py = oy + y * cell;
   const tile = state.map[y][x];
-  const materialRevealed = isWallMaterialRevealed(x, y, now);
+  const materialRevealed = state.spiritMode ? shown > 0 : isWallMaterialRevealed(x, y, now);
   const pulse = shakePulses.get(key(x,y));
   const shake = pulse && !prefersReducedMotion() ? Math.sin((now - pulse.created) * .08) * cell * .035 : 0;
 
@@ -4360,7 +4450,7 @@ function drawTile(x, y, cell, ox, oy, now, torchPreview, tutorialTarget, shakePu
     }
   }
   if(tutorialTarget?.[0]===x&&tutorialTarget?.[1]===y&&(shown>.5||state.tutorialPhase==="spiritExplore")){
-    ctx.globalAlpha=prefersReducedMotion() ? .86 : .72+Math.sin(now/170)*.18;
+    ctx.globalAlpha=state.spiritMode||prefersReducedMotion() ? .86 : .72+Math.sin(now/170)*.18;
     ctx.strokeStyle="#ffe08b";
     ctx.lineWidth=Math.max(2,cell*.055);
     ctx.strokeRect(px+cell*.04,py+cell*.04,cell*.92,cell*.92);
@@ -4467,11 +4557,12 @@ function drawMemoryPin(px,py,cell){
 
 function drawItems(cell, ox, oy, now) {
   for (const item of state.items) {
-    if (item.picked || isShown(item.x, item.y, now) < .25) continue;
+    const opacity=state.spiritMode?renderCellVisibility(item.x,item.y,now):1;
+    if (item.picked || (state.spiritMode?opacity<.01:isShown(item.x,item.y,now)<.25)) continue;
     const cx = ox + (item.x+.5)*cell, cy = oy+(item.y+.5)*cell;
     if (cx < -cell || cy < -cell || cx > canvas.width + cell || cy > canvas.height + cell) continue;
     const bob = prefersReducedMotion() ? 0 : Math.sin(now/260 + item.x)*cell*.04;
-    ctx.save();ctx.translate(cx,cy+bob);
+    ctx.save();ctx.globalAlpha=opacity;ctx.translate(cx,cy+bob);
     if(item.mandatory){
       ctx.save();ctx.strokeStyle="rgba(255,224,131,.9)";ctx.lineWidth=Math.max(1.5,cell*.035);ctx.setLineDash?.([cell*.12,cell*.08]);
       ctx.beginPath();ctx.arc(0,0,cell*.38,0,Math.PI*2);ctx.stroke();ctx.restore();
@@ -4499,11 +4590,12 @@ function drawItems(cell, ox, oy, now) {
 
 function drawShards(cell,ox,oy,now){
   for(const shard of state.shards){
-    if(shard.collected||isShown(shard.x,shard.y,now)<.25)continue;
+    const opacity=state.spiritMode?renderCellVisibility(shard.x,shard.y,now):1;
+    if(shard.collected||(state.spiritMode?opacity<.01:isShown(shard.x,shard.y,now)<.25))continue;
     const cx=ox+(shard.x+.5)*cell,cy=oy+(shard.y+.5)*cell;
     if(cx < -cell || cy < -cell || cx > canvas.width + cell || cy > canvas.height + cell)continue;
     const pulse=prefersReducedMotion()?1:.92+Math.sin(now/220+shard.x)*.08;
-    ctx.save();ctx.translate(cx,cy);ctx.scale(pulse,pulse);ctx.rotate(Math.PI/4);
+    ctx.save();ctx.globalAlpha=opacity;ctx.translate(cx,cy);ctx.scale(pulse,pulse);ctx.rotate(Math.PI/4);
     ctx.shadowColor="#ffdd72";ctx.shadowBlur=cell*.36;
     ctx.fillStyle="#ffe28a";roundRect(-cell*.12,-cell*.12,cell*.24,cell*.24,cell*.035,true);
     ctx.strokeStyle="#fff4c2";ctx.lineWidth=Math.max(1,cell*.025);ctx.strokeRect(-cell*.085,-cell*.085,cell*.17,cell*.17);
@@ -4522,8 +4614,9 @@ function drawStar(cell, ox, oy, now) {
   ctx.fillStyle = "#ffd86d"; ctx.fill();
   ctx.restore();
   if(locked)drawLock(cx,cy,cell*.26,.9);
-  if (isShown(x,y,now) < .25) {
-    ctx.save(); ctx.globalAlpha=.23; ctx.strokeStyle="#f2c35c"; ctx.lineWidth=1;
+  const darkness=state.spiritMode?1-renderCellVisibility(x,y,now):Number(isShown(x,y,now)<.25);
+  if (darkness > .01) {
+    ctx.save(); ctx.globalAlpha=.23*darkness; ctx.strokeStyle="#f2c35c"; ctx.lineWidth=1;
     ctx.beginPath(); ctx.arc(cx,cy,cell*.34,0,Math.PI*2); ctx.stroke(); ctx.restore();
   }
 }
@@ -4825,7 +4918,7 @@ function moveCanvasPointer(event) {
   }
   if (!pointerGesture.dragging && Math.hypot(dx,dy) < dragThreshold) return;
   pointerGesture.dragging=true;
-  if (!isCompactViewport() || ["preview","fading"].includes(state.phase)) return;
+  if ((!isCompactViewport()&&state.cameraZoom===DEFAULT_MAP_ZOOM)||state.phase!=="explore") return;
   event.preventDefault();
   const rect=canvas.getBoundingClientRect();
   const scale=canvas.width/Math.max(1,rect.width);
@@ -5286,6 +5379,8 @@ onboardingRevealButton?.addEventListener("click", dismissOnboardingReveal);
 document.getElementById("cancelButton").addEventListener("click", cancelSelection);
 document.getElementById("restartButton").addEventListener("click", restartLevel);
 document.getElementById("cameraResetButton").addEventListener("click", handleCameraControl);
+zoomInButton?.addEventListener("click", () => adjustMapZoom(1));
+zoomOutButton?.addEventListener("click", () => adjustMapZoom(-1));
 document.getElementById("semanticMapButton").addEventListener("click", openSemanticMap);
 document.getElementById("previewSemanticMapButton").addEventListener("click", openSemanticMap);
 document.getElementById("closeSemanticMap").addEventListener("click", closeSemanticMap);
