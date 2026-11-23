@@ -12,6 +12,7 @@ const FIRST_LEVEL_SPIRIT_ROUTE = [
 const MAP_ZOOM_LEVELS = [.55, .7, .85, 1, 1.25, 1.55, 1.9, 2.25];
 const DEFAULT_MAP_ZOOM = MAP_ZOOM_LEVELS.indexOf(1);
 const SPIRIT_LIGHT_FADE_MS = 210;
+const ECHO_TRAIL_LIMIT = 48;
 
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
@@ -32,6 +33,9 @@ const spiritReturnButton = document.getElementById("spiritReturnButton");
 const spiritStatusText = document.getElementById("spiritStatusText");
 const zoomInButton = document.getElementById("zoomInButton");
 const zoomOutButton = document.getElementById("zoomOutButton");
+const echoTrailButton = document.getElementById("echoTrailButton");
+const mazeNextAction = document.getElementById("mazeNextAction");
+const mazeHintButton = document.getElementById("mazeHintButton");
 const itemHelp = document.getElementById("itemHelp");
 const previewPanel = document.getElementById("previewPanel");
 const previewCountdown = document.getElementById("previewCountdown");
@@ -1136,6 +1140,9 @@ function serializeRunSnapshot() {
     permanentLight:[...state.permanentLight],
     tutorialPhase:stableRunTutorialPhase(state.tutorialPhase),
     tutorialSpiritStep:state.tutorialSpiritStep,
+    spiritTrace:[...state.spiritTrace],
+    echoTrail:[...state.echoTrail],
+    echoTrailVisible:state.echoTrailVisible,
     spiritMode:state.spiritMode===true,
     spiritScoutedCurrent:state.spiritScoutedCurrent===true,
     soul,
@@ -1222,6 +1229,13 @@ function sanitizeRunSnapshot(rawValue) {
       ||currentMap[soul.y][soul.x]!==TILE.FLOOR)return null;
     soul={x:soul.x,y:soul.y,facing:soul.facing};
   }else if(rawValue.soul!==null)return null;
+  // The optional echo overlay is presentation state. A malformed overlay should
+  // never invalidate the player's checkpoint.
+  const readTrace=(value)=>readRunCellKeys(value,width,height,(x,y)=>
+    x>0&&y>0&&x<width-1&&y<height-1&&currentMap[y][x]===TILE.FLOOR,ECHO_TRAIL_LIMIT)||[];
+  const spiritTrace=spiritMode ? readTrace(rawValue.spiritTrace) : [];
+  const echoTrail=usage.spirit>(spiritMode?1:0) ? readTrace(rawValue.echoTrail) : [];
+  const echoTrailVisible=rawValue.echoTrailVisible!==false;
   const star=findChar(level.map,TILE.STAR);
   if(player.x===star[0]&&player.y===star[1]&&collectedShards.length===shardKeys.size)return null;
   let tutorialPhase=rawValue.tutorialPhase;
@@ -1246,7 +1260,7 @@ function sanitizeRunSnapshot(rawValue) {
     player:{x:player.x,y:player.y,facing:player.facing},usage,mistakes,steps,newlyRevealed,prematureStarTouches,
     blastEvents,maxBlastYield,maxBlastPinnedYield,
     memoryPins,memoryPinsUsed,permanentLight,tutorialPhase,tutorialSpiritStep,
-    spiritMode,spiritScoutedCurrent,soul,
+    spiritMode,spiritScoutedCurrent,soul,spiritTrace,echoTrail,echoTrailVisible,
     inventory,currentMap,breaks:openedWalls.length,picked:pickedItems.reduce((sum,itemKey)=>sum+itemByKey.get(itemKey).amount,0)+collectedShards.length,
     toolCost:usage.hammer+usage.bomb*3+usage.flash*3+usage.spirit*2+usage.torch+usage.teleport*5,
     routeCost:usage.hammer+usage.bomb*3+usage.teleport*5,
@@ -1664,6 +1678,10 @@ function createRunState(level,index,inventory = emptyInventory(),{mode="campaign
     spiritVisible: new Set(),
     spiritLightTransition: null,
     spiritOriginVisible: new Set(),
+    spiritTrace: new Set(),
+    echoTrail: new Set(),
+    echoTrailVisible: true,
+    hintVisible: false,
     fade: startsInDark ? 1 : 0,
     fadeStarted: 0,
     breaks: 0,
@@ -1943,6 +1961,9 @@ function restoreRunSnapshot(snapshot) {
   state.practice=clean.practice;
   state.tutorialPhase=clean.tutorialPhase;
   state.tutorialSpiritStep=clean.tutorialSpiritStep;
+  state.spiritTrace=new Set(clean.spiritTrace);
+  state.echoTrail=new Set(clean.echoTrail);
+  state.echoTrailVisible=clean.echoTrailVisible;
   state.complete=false;
   state.locked=false;
   state.selected=null;
@@ -2330,6 +2351,7 @@ function startSpiritMode({atEntry=false}={}) {
   state.spiritScoutedCurrent = false;
   state.soul = { x:state.player.x, y:state.player.y, drawX:state.player.x, drawY:state.player.y, facing:state.player.facing };
   state.spiritOriginVisible = new Set(state.visible);
+  state.spiritTrace.clear();
   state.spiritVisible = computeVisibleFrom(state.soul.x, state.soul.y);
   state.spiritLightTransition = null;
   resetCamera();
@@ -2352,6 +2374,9 @@ function returnSpirit() {
   const retryTutorial = state.mode==="campaign" && state.tutorialPhase === "spiritExplore";
   const scouted=state.spiritScoutedCurrent===true;
   const refund=retryTutorial||!scouted;
+  const echoed=!refund&&state.spiritTrace.size>0;
+  if(echoed)state.echoTrail = new Set(state.spiritTrace);
+  state.spiritTrace.clear();
   state.spiritMode = false;
   state.spiritScoutedCurrent = false;
   state.soul = null;
@@ -2377,6 +2402,7 @@ function returnSpirit() {
   showToast(retryTutorial
     ? "侦察尚未完成 · 灵魂卡已返还，请重新尝试"
     :!scouted?"尚未进入新区域 · 灵魂卡已返还"
+    :echoed?"已返回身体 · 「回声」记下灵魂走过的地面"
     :"有效侦察完成 · 灵魂返回身体，恢复原视野", refund);
   scheduleRunSnapshot();
 }
@@ -2613,6 +2639,9 @@ function updateCanvasDescription(now=performance.now()) {
     .map(([dx,dy,label])=>`${label}${describeCell(focus.x+dx,focus.y+dy)}`).join("，");
   const shardProgress=state.shards.length?`已收集星屑 ${state.shardsCollected}/${state.shards.length}。`:"";
   const runTitle=runDisplayTitle();
+  const echoHelp=!state.spiritMode&&state.echoTrail.size
+    ? (state.echoTrailVisible?"回声以青色菱形标记灵魂走过的地面。":"已隐藏灵魂回声。")
+    : "";
   const tutorialTarget=currentTutorialTarget();
   const tutorialHelp=tutorialTarget
     ? `教学目标在第 ${tutorialTarget[1]+1} 行第 ${tutorialTarget[0]+1} 列。按 Enter 操作。`
@@ -2626,18 +2655,20 @@ function updateCanvasDescription(now=performance.now()) {
       : state.spiritMode?"镜头已放大灵魂所在的光亮区域，可拖动查看。"
       : "镜头已放大角色当前的光亮区域，可拖动查看。"
     : "";
-  canvas.setAttribute?.("aria-label", `${runTitle}。${previewHelp}${memoryPinHelp}${cameraHelp}${mode}。${tutorialHelp}${routeHelp}${guidance.label}在${goalDirection}方向，距离 ${goalDistance} 格。${shardProgress}四周：${neighbors}。${selection}。锤 ${inventory.hammer}，炸弹 ${inventory.bomb}，闪光 ${inventory.flash}，灵魂 ${inventory.spirit}，手电 ${inventory.torch}，瞬移 ${inventory.teleport}。按 M 打开文本地图检查器。`);
+  canvas.setAttribute?.("aria-label", `${runTitle}。${previewHelp}${memoryPinHelp}${cameraHelp}${mode}。${echoHelp}${tutorialHelp}${routeHelp}${guidance.label}在${goalDirection}方向，距离 ${goalDistance} 格。${shardProgress}四周：${neighbors}。${selection}。锤 ${inventory.hammer}，炸弹 ${inventory.bomb}，闪光 ${inventory.flash}，灵魂 ${inventory.spirit}，手电 ${inventory.torch}，瞬移 ${inventory.teleport}。按 M 打开文本地图检查器。`);
 }
 
 function semanticCellInfo(x,y,now=semanticMapSnapshotTime){
   const coordinate=`第 ${y+1} 行，第 ${x+1} 列`;
   const tutorialTarget=currentTutorialTarget();
   const isTutorialTarget=tutorialTarget?.[0]===x&&tutorialTarget?.[1]===y;
+  const echoed=activeEchoTrail()?.has(key(x,y));
   if(isShown(x,y,now)<.5)return {
-    label:`${coordinate}：${isTutorialTarget?"教学目标，":""}未照亮`,
-    symbol:isTutorialTarget?"◎":"？",className:"unknown",
+    label:`${coordinate}：${isTutorialTarget?"教学目标，":""}${echoed?"未照亮的灵魂回声地面":"未照亮"}`,
+    symbol:isTutorialTarget?"◎":echoed?"◇":"？",className:echoed?"unknown echo-trace":"unknown",
   };
   const features=isTutorialTarget?["教学目标"]:[];
+  if(echoed)features.push("灵魂回声");
   const isPlayer=state.player.x===x&&state.player.y===y;
   const isSoul=Boolean(state.spiritMode&&state.soul?.x===x&&state.soul?.y===y);
   const isStar=state.star[0]===x&&state.star[1]===y;
@@ -2836,7 +2867,62 @@ function updateInventory() {
     itemHelp.innerHTML = "<strong>移动</strong><span>点击光亮地面自动前往；手机可拖动画面查看周围</span>";
   }
   updateCameraResetButton();
+  updateMazeActions();
   updateCanvasDescription();
+}
+
+const AIM_INSTRUCTIONS = {
+  hammer:"选一面亮区边缘的墙敲击",
+  bomb:"在脚下或相邻地面放置炸弹",
+  flash:"点地图开启全图照明",
+  torch:"点地图选择照明方向",
+  teleport:"选择 10 格内的地面落脚",
+};
+
+function updateMazeActions() {
+  const exploring=state.phase==="explore"&&!state.complete;
+  const inTutorial=!tutorialBubble.classList.contains("hidden");
+  if(echoTrailButton){
+    const available=exploring&&!state.spiritMode&&state.echoTrail.size>0;
+    echoTrailButton.classList.toggle("hidden", !available);
+    echoTrailButton.setAttribute("aria-pressed", String(available&&state.echoTrailVisible));
+  }
+  const canHint=exploring&&!inTutorial&&Boolean(state.level.hint);
+  mazeHintButton?.classList.toggle("hidden", !canHint);
+  if(mazeHintButton){
+    mazeHintButton.setAttribute("aria-pressed", String(canHint&&state.hintVisible));
+    mazeHintButton.textContent=canHint&&state.hintVisible ? "收起" : "提示";
+  }
+  if(!mazeNextAction)return;
+  const shards=remainingShards().length;
+  const rewards=remainingMandatoryRewards().length;
+  let text="";
+  if(canHint&&state.hintVisible)text=state.level.hint;
+  else if(exploring&&!inTutorial){
+    if(state.selected)text=AIM_INSTRUCTIONS[state.selected];
+    else if(state.spiritMode)text=state.spiritScoutedCurrent
+      ? "已看见新区域 · 可以继续探路或返回身体"
+      : "点击任意内侧方格穿墙探路";
+    else if(shards)text=`还需收集 ${shards} 枚星屑，才能打开星门`;
+    else if(rewards)text=`还有 ${rewards} 处发光补给，拾取后打开星门`;
+    else text="寻找金色星门，前往出口";
+  }
+  mazeNextAction.parentElement?.classList.toggle("hidden", !text&&!canHint);
+  if(mazeNextAction.textContent!==text)mazeNextAction.textContent=text;
+}
+
+function toggleEchoTrail() {
+  if(state?.phase!=="explore"||state.spiritMode||!state.echoTrail.size)return;
+  state.echoTrailVisible=!state.echoTrailVisible;
+  updateMazeActions();
+  updateCanvasDescription();
+  scheduleRunSnapshot();
+}
+
+function toggleMazeHint() {
+  if(state?.phase!=="explore"||!tutorialBubble.classList.contains("hidden"))return;
+  state.hintVisible=!state.hintVisible;
+  updateMazeActions();
 }
 
 function autoMoveDuration(stepIndex) {
@@ -2934,6 +3020,7 @@ function animateSoulTo(nx, ny, onComplete = null) {
       soul.drawX = nx;
       soul.drawY = ny;
       activeState.locked = false;
+      recordSpiritTrace(nx,ny);
       updateSpiritVisible();
       updateCameraResetButton();
       updateCanvasDescription();
@@ -2944,6 +3031,19 @@ function animateSoulTo(nx, ny, onComplete = null) {
   });
   playTone("spiritStep");
   return true;
+}
+
+function recordSpiritTrace(x,y) {
+  const cellKey=key(x,y);
+  if(state.mode!=="campaign"||!isFloor(x,y)||state.spiritOriginVisible.has(cellKey))return;
+  state.spiritTrace.delete(cellKey);
+  state.spiritTrace.add(cellKey);
+  if(state.spiritTrace.size>ECHO_TRAIL_LIMIT)state.spiritTrace.delete(state.spiritTrace.values().next().value);
+}
+
+function activeEchoTrail() {
+  if(state.phase!=="explore"||!state.echoTrailVisible)return null;
+  return state.spiritMode ? state.spiritTrace : state.echoTrail;
 }
 
 function moveSoulTo(targetX, targetY) {
@@ -3602,14 +3702,60 @@ function finishLevel() {
   scheduleGameTimeout(() => { if (state === activeState) showResults(stars); }, 700);
 }
 
+function campaignResultNote(stars, score, campaignFinal, firstChapterFinal) {
+  if (state.saveConflict) {
+    return "另一标签页已重置或导入存档，本次旧关卡结果未保存。请回到当前进度后重试。";
+  }
+  if (state.completionPersistFailed) {
+    return `本机暂时无法保存本关结算。${completionRecoveryMessage()}。`;
+  }
+
+  const scoreLine = `路径成本 ${state.routeCost} 点，三星上限 ${score.target} 点。`;
+  let replayGoal = "";
+  if (stars < 3) {
+    const excessCost = state.routeCost - score.target;
+    replayGoal = `重玩时少花 ${excessCost} 点就能拿到三星。`;
+    if (state.mistakes > 0) {
+      replayGoal += `本次 ${state.mistakes} 次误敲已计入成本。`;
+    }
+  } else if (state.mistakes > 0) {
+    replayGoal = `本次误敲 ${state.mistakes} 次，可以重玩挑战零误敲。`;
+  }
+
+  let progress;
+  if (campaignFinal) {
+    const campaignStars = Object.values(save.stars).reduce((sum, value) => sum + boundedInteger(value, 0, 3), 0);
+    const campaignBadges = Object.values(save.badges || {}).filter(Boolean).length;
+    const availableBadges = LEVELS.filter(level => level.challenge).length;
+    progress = `${LEVELS.length} 段星路全部亮起。累计 ${campaignStars} / ${LEVELS.length * 3} 星、${campaignBadges} / ${availableBadges} 枚印记。最终储备 ${state.inventory.hammer} 锤 / ${state.inventory.bomb} 炸弹（标准目标 11 锤 / 1 炸弹）。`;
+  } else if (firstChapterFinal) {
+    progress = "失光迷宫十五段星路已亮起。余烬深处藏着裂纹墙、星屑和记忆钉。";
+  } else {
+    const nextLevel = LEVELS[state.levelIndex + 1];
+    const nextFloorTease = {
+      0: "手电能在墙上留下光带。",
+      4: "往后的关卡可以挑战三星印记。",
+      15: "下一道门，要用炸弹打开。",
+      16: "先找齐两枚星屑，星门才会开放。",
+    }[state.levelIndex] || "";
+    progress = `下一层「${nextLevel.name}」。${nextFloorTease}`;
+  }
+
+  return scoreLine + (campaignFinal || firstChapterFinal ? progress + replayGoal : replayGoal + progress);
+}
+
 function showResults(stars) {
   state.resultStars=boundedInteger(stars,1,3);
+  const resultDetails=completeModal.querySelector?.(".result-details");
+  if(resultDetails)resultDetails.open=false;
   const resultShareStatus=document.getElementById("resultShareStatus");
   if(resultShareStatus)resultShareStatus.textContent="";
   const resultMainButton=document.getElementById("resultMainButton");
   const replayButton=document.getElementById("replayButton");
   resultMainButton?.classList.toggle("hidden",state.mode!=="seeded");
-  if(replayButton)replayButton.textContent=state.mode==="seeded"?"同码再试":"再试一次";
+  if(replayButton)replayButton.textContent=state.mode==="seeded"?"同码再试":state.mode==="daily"?"再试一次":"重玩本关";
+  const routeCostStat=document.getElementById("statRouteCost");
+  routeCostStat.textContent=state.routeCost;
   if(state.mode==="seeded"){
     const difficulty=seededPresetName(state.seeded.preset);
     document.getElementById("resultKicker").textContent="种子星图完成";
@@ -3635,7 +3781,6 @@ function showResults(stars) {
       ? `${memoryRunSummary}。星标仅为本局荣誉，不长期保存。`
       : `${memoryRunSummary}。未满足：${memoryFailures.join("、")}。星标仅为本局荣誉，不长期保存；闪光不影响基础星级。`;
     document.getElementById("statBreaks").textContent=state.toolCost;
-    document.getElementById("statRouteCost").textContent=state.routeCost;
     document.getElementById("statSteps").textContent=state.steps;
     document.getElementById("statReveal").textContent=state.newlyRevealed;
     document.getElementById("statHammer").textContent=`${state.inventory.hammer} / 0 / ${state.inventory.flash}`;
@@ -3674,7 +3819,6 @@ function showResults(stars) {
       ? `已有效使用 1 次${contractToolName}，完成「${state.daily.contract.name}」，零误敲，并以最优路径成本 ${state.daily.optimalCost} 抵达星星。`
       : `需要三星、零误敲、路径成本恰好为 ${state.daily.optimalCost}，并有效使用 1 次${contractToolName}以完成「${state.daily.contract.name}」（本次 ${contractUses} 次）。`;
     document.getElementById("statBreaks").textContent=state.toolCost;
-    document.getElementById("statRouteCost").textContent=state.routeCost;
     document.getElementById("statSteps").textContent=state.steps;
     document.getElementById("statReveal").textContent=state.newlyRevealed;
     document.getElementById("statHammer").textContent=`${state.inventory.hammer} / 0 / ${state.inventory.flash}`;
@@ -3725,31 +3869,17 @@ function showResults(stars) {
       : state.challengeSuccess
       ? `✓ ${challenge.name}${state.challengeEarnedBefore ? " · 再次达成" : " · 新印记"}`
       : state.challengeEarnedBefore ? `✓ ${challenge.name} · 已取得` : `○ ${challenge.name} · 尚未达成`;
-    const failureDetail = !state.challengeSuccess&&!state.saveConflict
-      ? ` 未达成：${challengeFailures(stars).join("；")}。`
-      : "";
-    const conflictDetail = state.saveConflict ? " 另一标签页已更换存档，本次旧关卡结果未写入。"
-      : completionUnsaved ? ` 本机暂时无法写入结算，${completionRecoveryMessage()}。` : "";
-    document.getElementById("challengeResultDetail").textContent = `${challenge.description}${failureDetail}${conflictDetail}${!state.challengeSuccess && state.challengeEarnedBefore ? " 本次未达成，但印记会永久保留。" : ""}`;
+    const unmet = !state.challengeSuccess&&!state.saveConflict ? challengeFailures(stars) : [];
+    const retryDetail = unmet.length > 0 ? `未达成：${unmet.join("、")}。` : "";
+    document.getElementById("challengeResultDetail").textContent = retryDetail || challenge.description;
   }
+  const score = currentRunScore(state);
   document.getElementById("statBreaks").textContent = state.toolCost;
-  document.getElementById("statRouteCost").textContent = state.routeCost;
   document.getElementById("statSteps").textContent = state.steps;
   document.getElementById("statReveal").textContent = state.newlyRevealed;
   document.getElementById("statHammer").textContent = `${state.inventory.hammer} / ${state.inventory.bomb} / ${state.inventory.flash}`;
   document.getElementById("statUtility").textContent = `${state.inventory.spirit} / ${state.inventory.torch} / ${state.inventory.teleport}`;
-  const campaignStars=Object.values(save.stars).reduce((sum,value)=>sum+boundedInteger(value,0,3),0);
-  const campaignBadges=Object.values(save.badges||{}).filter(Boolean).length;
-  document.getElementById("resultNote").textContent = state.saveConflict
-    ? "另一标签页已重置或导入存档，本次旧关卡结果未保存；请回到当前进度后重试。"
-    : state.completionPersistFailed
-    ? `本机暂时无法保存本关结算；${completionRecoveryMessage()}。`
-    : campaignFinal
-    ? `${LEVELS.length} 段星路全部亮起。本次剩余 ${state.inventory.hammer} 次锤击、${state.inventory.bomb} 枚炸弹（标准目标 11 锤 / 1 炸弹）；总计 ${campaignStars} / ${LEVELS.length*3} 星、${campaignBadges} / ${LEVELS.filter(level=>level.challenge).length} 枚印记。`
-    : firstChapterFinal
-    ? `失光迷宫十五段星路已经亮起，余烬深处出现了新的裂纹、星屑与记忆钉。带着剩余 ${state.inventory.hammer} 次锤击继续前进。`
-    : state.practice ? `练习回放不会覆盖主线物资。${stars===3?state.level.lesson:"再观察一次，或许能减少无效消耗。"}`
-    : stars === 3 ? state.level.lesson : "已经抵达星星。再观察一次，或许能减少无效消耗。";
+  document.getElementById("resultNote").textContent = campaignResultNote(stars, score, campaignFinal, firstChapterFinal);
   const nextButton = document.getElementById("nextButton");
   nextButton.innerHTML = state.saveConflict ? "回到当前进度 <span>→</span>"
     : state.completionPersistFailed ? "重试保存后继续 <span>↻</span>"
@@ -3824,7 +3954,9 @@ function showTutorialForState() {
     spiritUse: ["01", "身体已回到起点。点击背包里的「灵魂出窍」，继续找星门。"],
     spiritExplore: ["01", spiritHint],
     spiritReturn: ["02", "星门已经找到。点「返回身体」，回到起点。"],
-    move: ["03", "现在是身体状态。点上方发光的锤子，走过去拾取。"],
+    move: ["03", state.echoTrail.size
+      ? "青色菱形是灵魂走过的地面。点上方发光的锤子，走过去拾取。"
+      : "现在是身体状态。点上方发光的锤子，走过去拾取。"],
     selectWood: ["04", "你已拾取锤子，可敲击 5 次。点背包里的「砸墙锤」。"],
     breakWood: ["05", "点金框标出的木墙。你会自动走近，再敲开它。"],
     goal: ["06", "木墙开了。捡起路上的锤子，继续走向刚才的星门。"],
@@ -4250,11 +4382,6 @@ function draw(now) {
     if (remain <= 0) endPreview();
   }
   if (state.phase === "fading") state.fade = Math.min(1, (now - state.fadeStarted) / 800);
-  if (state.phase === "explore" && now - state.lastProgress > 20000) {
-    state.lastProgress = now;
-    showToast(state.level.hint);
-    if (remainingShards().length||!state.items.every((i) => i.picked)) pulseGuidanceHint();
-  }
   updateIlluminationStatus(now);
   updateParticles(dt);
   render(now);
@@ -4306,8 +4433,12 @@ function render(now) {
     ? new Set(getTorchCells(state.target.x,state.target.y).map(([x,y])=>key(x,y))) : null;
   const tutorialTarget=currentTutorialTarget();
   const shakePulses=new Map(state.pulses.filter((pulse)=>pulse.type==="shake").map((pulse)=>[key(pulse.x,pulse.y),pulse]));
+  const echoTrail=activeEchoTrail();
   for (let y = startY; y < endY; y++) {
-    for (let x = startX; x < endX; x++) drawTile(x, y, cell, ox, oy, now, torchPreview, tutorialTarget, shakePulses);
+    for (let x = startX; x < endX; x++) {
+      drawTile(x, y, cell, ox, oy, now, torchPreview, tutorialTarget, shakePulses);
+      if(echoTrail?.has(key(x,y)))drawEchoTrace(x,y,cell,ox,oy,now);
+    }
   }
   drawItems(cell, ox, oy, now);
   drawShards(cell,ox,oy,now);
@@ -4459,14 +4590,46 @@ function drawTile(x, y, cell, ox, oy, now, torchPreview, tutorialTarget, shakePu
   ctx.restore();
 }
 
+function drawEchoTrace(x,y,cell,ox,oy,now) {
+  const cx=ox+(x+.5)*cell,cy=oy+(y+.5)*cell;
+  const lit=renderCellVisibility(x,y,now)>.5;
+  const size=Math.max(2,cell*.105);
+  ctx.save();
+  ctx.globalAlpha=lit ? .46 : .7;
+  ctx.strokeStyle=lit?"#35675f":"#78d0c6";
+  ctx.lineWidth=Math.max(1,cell*.035);
+  ctx.beginPath();
+  ctx.moveTo(cx,cy-size);
+  ctx.lineTo(cx+size,cy);
+  ctx.lineTo(cx,cy+size);
+  ctx.lineTo(cx-size,cy);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+}
+
+const FLOOR_SURFACES = {
+  body:["#cfb797", "#d7bea0", "#ddc6a8"],
+  spirit:["#b2d0c8", "#bad7ce", "#c2ded6"],
+};
+
 function drawFloor(px, py, cell, x, y) {
-  ctx.fillStyle = "#eee4d1";
+  const surface = state.spiritMode ? FLOOR_SURFACES.spirit : FLOOR_SURFACES.body;
+  ctx.fillStyle = surface[(x*7+y*11)%surface.length];
   ctx.fillRect(px, py, cell, cell);
-  ctx.globalAlpha *= .055;
-  ctx.fillStyle = "#7d6e59";
+  ctx.lineWidth = Math.max(1,cell*.018);
+  ctx.strokeStyle = state.spiritMode ? "rgba(22,65,65,.2)" : "rgba(73,50,26,.21)";
+  ctx.strokeRect(px+.5,py+.5,cell-1,cell-1);
+  if(cell<21)return;
+  ctx.fillStyle = "rgba(77,62,49,.17)";
   ctx.fillRect(px + cell*.18, py + cell*.26, cell*.04, cell*.035);
-  ctx.fillRect(px + cell*.67, py + cell*.72, cell*.05, cell*.025);
-  ctx.globalAlpha /= .055;
+  ctx.fillRect(px + cell*.67, py + cell*.72, cell*.065, cell*.025);
+  ctx.strokeStyle = "rgba(252,247,222,.51)";
+  ctx.beginPath();
+  ctx.moveTo(px+cell*.10,py+cell*.82);
+  ctx.lineTo(px+cell*.10,py+cell*.10);
+  ctx.lineTo(px+cell*.86,py+cell*.10);
+  ctx.stroke();
 }
 
 function drawConcealedWall(px, py, cell) {
@@ -4483,8 +4646,13 @@ function drawConcealedWall(px, py, cell) {
 }
 
 function drawWood(px, py, cell, x, y, now) {
-  ctx.fillStyle = "#8b6447";
+  ctx.fillStyle = "#4b2e24";
   roundRect(px + cell*.055, py + cell*.055, cell*.89, cell*.89, cell*.07, true);
+  ctx.fillStyle = (x+y)%2===0 ? "#a57746" : "#996c40";
+  roundRect(px + cell*.07, py + cell*.07, cell*.86, cell*.80, cell*.065, true);
+  ctx.strokeStyle = "rgba(243,201,135,.34)";
+  ctx.lineWidth = Math.max(1,cell*.023);
+  ctx.strokeRect(px+cell*.115,py+cell*.105,cell*.77,cell*.73);
   const horizontal = (x + y) % 2 === 0;
   ctx.strokeStyle = "rgba(47,27,18,.45)";
   ctx.lineWidth = Math.max(1, cell*.035);
@@ -4494,7 +4662,7 @@ function drawWood(px, py, cell, x, y, now) {
     else { ctx.moveTo(px+cell*(i/4), py+cell*.1); ctx.lineTo(px+cell*(i/4+.02), py+cell*.9); }
     ctx.stroke();
   }
-  ctx.strokeStyle = "#d1a171";
+  ctx.strokeStyle = "#ecc187";
   ctx.lineWidth = Math.max(1.5, cell*.035);
   ctx.beginPath();
   ctx.moveTo(px+cell*.48, py+cell*.12);
@@ -4504,10 +4672,14 @@ function drawWood(px, py, cell, x, y, now) {
   ctx.stroke();
 }
 
+const STONE_SURFACES = ["#42545b", "#485c62", "#3e5057"];
+
 function drawStone(px, py, cell, x, y) {
-  ctx.fillStyle = "#46515b";
+  ctx.fillStyle = "#1c2b31";
   roundRect(px + cell*.035, py + cell*.035, cell*.93, cell*.93, cell*.075, true);
-  ctx.strokeStyle = "rgba(195,205,205,.17)";
+  ctx.fillStyle = STONE_SURFACES[(x*3+y*7)%STONE_SURFACES.length];
+  roundRect(px+cell*.06,py+cell*.05,cell*.88,cell*.81,cell*.068,true);
+  ctx.strokeStyle = "rgba(195,218,214,.22)";
   ctx.lineWidth = Math.max(1, cell*.02);
   ctx.strokeRect(px+cell*.09, py+cell*.09, cell*.82, cell*.82);
   ctx.strokeStyle = "rgba(20,27,32,.45)";
@@ -5041,6 +5213,11 @@ function startSeededFromModal(){
 function showCurrentHint() {
   if (!state) return;
   closeSettings();
+  if(state.phase==="explore"&&tutorialBubble.classList.contains("hidden")){
+    state.hintVisible=true;
+    updateMazeActions();
+    return;
+  }
   state.lastProgress = performance.now();
   showToast(`本关提示 · ${state.level.hint}`);
   pulseGuidanceHint();
@@ -5381,6 +5558,8 @@ document.getElementById("restartButton").addEventListener("click", restartLevel)
 document.getElementById("cameraResetButton").addEventListener("click", handleCameraControl);
 zoomInButton?.addEventListener("click", () => adjustMapZoom(1));
 zoomOutButton?.addEventListener("click", () => adjustMapZoom(-1));
+echoTrailButton?.addEventListener("click",toggleEchoTrail);
+mazeHintButton?.addEventListener("click",toggleMazeHint);
 document.getElementById("semanticMapButton").addEventListener("click", openSemanticMap);
 document.getElementById("previewSemanticMapButton").addEventListener("click", openSemanticMap);
 document.getElementById("closeSemanticMap").addEventListener("click", closeSemanticMap);
